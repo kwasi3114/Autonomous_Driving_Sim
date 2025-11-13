@@ -5,5 +5,7 @@ sceneTreePerspectives: 000000ff000000010000000300000022000000c0000000fa010000000
 maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
-textFiles: 0 "../../../../Users/kwasi/Documents/propeller_test/controllers/crazyflie_test/crazyflie_test.py" "../../../../Users/kwasi/Documents/propeller_test/protos/mars_quadcopter_v3_3.proto" "../../../../Users/kwasi/Documents/propeller_test/worlds/prop_test.wbt"
+textFiles: 2 "../propeller_test/controllers/crazyflie_test/crazyflie_test.py" "../propeller_test/protos/mars_quadcopter_v3_3.proto" "worlds/base_world.wbt"
 consoles: Console:All:All
+renderingDevicePerspectives: vehicle:camera;1;1;0;0
+renderingDevicePerspectives: vehicle:display;1;1;0;0
