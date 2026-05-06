@@ -24,12 +24,6 @@ def laneController(width, hough, dt):
     carCenter = width/2
     laneCenter = getLaneCenter(hough, carCenter)
     error = laneCenter - carCenter
-    Kp = 0.04
+    Kp = 0.05
     return Kp*error
-    #if Kp*error < -1:
-    #    return -1
-    #elif Kp*error > 1:
-    #    return 1
-    #else:
-    #    return Kp*error
     
