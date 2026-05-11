@@ -55,6 +55,48 @@ def calc_dynamic_window(v_current, steer_current, config):
     )
     
 
+def score_heading(trajectory, goal_local):
+    """
+    Score based on how well the final pose faces the local goal point.
+    goal_local: (gx, gy) in vehicle frame — e.g. your pure pursuit lookahead point
+    """
+    final_x, final_y, final_theta = trajectory[-1]
+    angle_to_goal = math.atan2(
+        goal_local[1] - final_y,
+        goal_local[0] - final_x
+    )
+    heading_error = abs(angle_to_goal - final_theta)
+    # Normalize to [0, pi]
+    heading_error = abs((heading_error + math.pi) % (2 * math.pi) - math.pi)
+    return 1.0 - (heading_error / math.pi)  # 1.0 = perfect, 0.0 = worst
+
+
+def score_clearance(trajectory, obstacles, config):
+    """
+    Score based on minimum clearance from any obstacle along trajectory.
+    Returns 0.0 if trajectory is a collision, else normalized clearance.
+    """
+    min_dist = float('inf')
+    
+    for (x, y, _) in trajectory:
+        for (ox, oy, orad) in obstacles:
+            dist = math.hypot(x - ox, y - oy) - orad
+            if dist < config.collision_radius:
+                return 0.0  # Hard collision — discard this trajectory
+            min_dist = min(min_dist, dist)
+    
+    if min_dist == float('inf'):
+        return 1.0  # No obstacles nearby
+    
+    # Normalize: full score at 5m+ clearance
+    return min(min_dist / 5.0, 1.0)
+
+
+def score_velocity(v, config):
+    """Prefer higher speeds (penalizes unnecessary braking)."""
+    return v / config.max_speed
+
+
 def simulate_trajectory(v, steer, config, wheelbase=2.5):
     """
     Simulate vehicle motion using Ackermann steering model.

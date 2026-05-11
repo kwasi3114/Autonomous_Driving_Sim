@@ -3,30 +3,49 @@ import numpy as np
 
 # process point cloud input to obtain filtered obstacles
 
-def world_to_local(points, state):
+def world_to_local(points, state, convention='standard'):
     """
-    Transform world-frame (x, y) points into vehicle-local frame.
-    state = (x, y, heading_rad)
-    Returns list of (local_x, local_y) where +x is forward, +y is left
+    convention options:
+      'standard'  — original (your current version)
+      'flip_dy'   — negate dy before rotation
+      'flip_heading' — negate heading
+      'swap_axes' — swap x/y world axes (for Webots XZ ground plane)
     """
     vx, vy, heading = state
     local_points = []
-    
+
     for (wx, wy) in points:
         dx = wx - vx
         dy = wy - vy
-        # Rotate into vehicle frame
-        lx =  dx * math.cos(heading) + dy * math.sin(heading)
-        ly = -dx * math.sin(heading) + dy * math.cos(heading)
+
+        if convention == 'standard':
+            lx =  dx * math.cos(heading) + dy * math.sin(heading)
+            ly = -dx * math.sin(heading) + dy * math.cos(heading)
+
+        elif convention == 'flip_dy':
+            lx =  dx * math.cos(heading) - dy * math.sin(heading)
+            ly =  dx * math.sin(heading) + dy * math.cos(heading)
+
+        elif convention == 'flip_heading':
+            h = -heading
+            lx =  dx * math.cos(h) + dy * math.sin(h)
+            ly = -dx * math.sin(h) + dy * math.cos(h)
+
+        elif convention == 'swap_axes':
+            # treat world (x,y) as (z,x) — Webots ground plane fix
+            dx, dy = dy, dx
+            lx =  dx * math.cos(heading) + dy * math.sin(heading)
+            ly = -dx * math.sin(heading) + dy * math.cos(heading)
+
         local_points.append((lx, ly))
-    
+
     return local_points
 
 def filter_local_obstacles(local_points, 
-                            max_forward=20.0,   # meters ahead
-                            max_behind=2.0,     # small buffer behind
-                            max_lateral=4.0,    # ~one lane each side
-                            min_dist=0.5):      # ignore points on the car itself
+                            max_forward=100.0,   # meters ahead
+                            max_behind=0.0,     # small buffer behind
+                            max_lateral=100.0,    # ~one lane each side
+                            min_dist=0.0):      # ignore points on the car itself
     """
     Keep only points in a forward-facing corridor around the vehicle.
     local frame: +x = forward, +y = left
@@ -72,21 +91,61 @@ def cluster_points(local_points, cluster_radius=1.5):
     
     return clusters
 
-def parse_pc_data(point_cloud, state):
+def parse_raw_lidar(lidar, state):
     """
-    Full pipeline: raw world-frame point cloud → DWA-ready obstacle list
+    Read LiDAR directly — bypass gmapping.process_pointcloud_data entirely.
+    For a 180-degree front-arc LiDAR in Webots.
     """
-    # 1. Transform to local frame
-    local_pts = world_to_local(point_cloud, state)
+    vx, vy, heading = state
     
-    # 2. Filter to road corridor
-    local_pts = filter_local_obstacles(local_pts,
-                                        max_forward=20.0,
-                                        max_lateral=4.0)
+    range_data  = lidar.getRangeImage()   # flat list of distances
+    fov         = lidar.getFov()          # total FOV in radians (should be ~pi)
+    num_rays    = lidar.getHorizontalResolution()
     
-    # 3. Cluster into obstacles
-    obstacles = cluster_points(local_pts, cluster_radius=1.5)
+    obstacles_local = []
     
-    return obstacles  # [(cx, cy, radius), ...]
+    for i, dist in enumerate(range_data):
+        # Skip invalid returns
+        if dist >= lidar.getMaxRange() or dist <= 0.1 or math.isinf(dist):
+            continue
+        
+        # Angle of this ray in sensor frame
+        # For 180-deg arc: rays go from -fov/2 (right) to +fov/2 (left)
+        angle = -fov / 2.0 + i * (fov / (num_rays - 1))
+        
+        # Hit position in vehicle-local frame (+x forward, +y left)
+        lx = dist * math.cos(angle)
+        ly = dist * math.sin(angle)
+        
+        obstacles_local.append((lx, ly))
+    
+    return obstacles_local
+
+
+def parse_pc(lidar, state):
+    """
+    Full pipeline using raw LiDAR ranges.
+    """
+    # 1. Get points already in local frame from raw LiDAR
+    local_pts = parse_raw_lidar(lidar, state)
+    
+    #print(f"[DEBUG] Raw local points (first 5): {local_pts[:5]}")
+    #print(f"[DEBUG] Local X range: {min(p[0] for p in local_pts):.1f} "
+          #f"to {max(p[0] for p in local_pts):.1f}")
+    
+    # 2. Filter — no world_to_local needed, already in local frame
+    filtered = filter_local_obstacles(local_pts,
+                                       max_forward=20.0,
+                                       max_behind=1.0,
+                                       max_lateral=4.0,
+                                       min_dist=0.5)
+    
+    #print(f"[DEBUG] Points after filter: {len(filtered)} / {len(local_pts)}")
+    
+    # 3. Cluster
+    obstacles = cluster_points(filtered, cluster_radius=1.0)
+    
+    #print(f"[DEBUG] Final obstacles: {obstacles}")
+    return obstacles
     
  

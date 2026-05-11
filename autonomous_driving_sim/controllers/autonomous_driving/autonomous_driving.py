@@ -24,6 +24,9 @@ from path_generation import pathGeneration
 from path_follower import pathFollower
 from pure_pursuit import pure_pursuit_steer
 from path_follower_alpha import pathFollowerA
+from parse_pc_data import parse_pc
+from dwa_planning import dwa_plan, DWAConfig
+from localization import EKFLocalizer
 
 # create the Robot instance.
 #robot = Robot()
@@ -42,6 +45,8 @@ from controller import Keyboard
 driver = Driver()
 driver.setSteeringAngle(0)
 driver.setCruisingSpeed(20)
+
+config = DWAConfig()
 
 #robot = Robot()
 #keyboard = robot.getKeyboard()
@@ -63,6 +68,9 @@ lidar.enablePointCloud()
 
 gyro = driver.getDevice("gyro")
 gyro.enable(10)
+
+accel = driver.getDevice("accelerometer")
+accel.enable(10)
 
 gmapping = Mapping()
 
@@ -125,6 +133,13 @@ def update_theta(theta, omega_z, dt):
 #  ds = robot.getDevice('dsname')
 #  ds.enable(timestep)
 
+dt = 0.01
+gps_start = gps.getValues()
+initial_state = [gps_start[0], gps_start[2], 0.0, 0.0]  # x, z, theta, v
+ekf = EKFLocalizer(dt=dt, initial_state=initial_state)
+
+
+
 # Main loop:
 # - perform simulation steps until Webots is stopping the controller
 while driver.step() != -1:
@@ -171,6 +186,12 @@ while driver.step() != -1:
     angvel = gyro.getValues()
     yaw_roc = -angvel[2]
     theta = update_theta(theta, yaw_roc, 0.01)
+    
+    accelVals = accel.getValues()
+    forward_accel = accelVals[2]
+    
+    u = [heading, forward_accel]
+    ekf.predict(u)
     
     #if heading > 0:
     #    vehi
@@ -289,11 +310,24 @@ while driver.step() != -1:
     #print(state)
     
     #ranges = lidar.getRangeImage()
-    point_cloud = lidar.getPointCloud()
+    #point_cloud = lidar.getPointCloud()
     #print(point_cloud)
-    gmapping.mapping(point_cloud, state)
-    points = gmapping.process_pointcloud_data(point_cloud)
-    print(points)
+    #gmapping.mapping(point_cloud, state)
+    #points = gmapping.process_pointcloud_data(point_cloud)
+    obstacles = parse_pc(lidar, state)
+    
+    if len(obstacles) != 0:
+        #print("Using DWA...")
+        best_v, best_steer, best_traj = dwa_plan(20, steeringAngle,
+        obstacles, target_pos, config)
+        
+        driver.setCruisingSpeed(best_v)
+        driver.setSteeringAngle(best_steer)
+    #if len(obstacles) != 0:
+    #    print(obstacles)
+    #print(points)
+    
+    
 
     # Extract useful data
     #lidar_data = []
